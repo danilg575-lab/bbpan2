@@ -1,22 +1,8 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-const fs = require('fs');
 const app = express();
 
 app.use(express.json());
-
-// Путь к системному Chrome (может отсутствовать)
-const SYSTEM_CHROME = '/usr/bin/google-chrome-stable';
-
-// Функция для проверки наличия системного Chrome
-function getChromePath() {
-    if (fs.existsSync(SYSTEM_CHROME)) {
-        console.log(`✅ Using system Chrome at ${SYSTEM_CHROME}`);
-        return SYSTEM_CHROME;
-    }
-    console.log('⚠️ System Chrome not found, will use bundled Chromium');
-    return null;
-}
 
 app.post('/get-token', async (req, res) => {
     const { cookies, proxy, url, awardId } = req.body;
@@ -40,7 +26,6 @@ app.post('/get-token', async (req, res) => {
         let parsedCookies = cookies;
         if (typeof cookies === 'string') {
             addLog('⚠️ Cookies is a string, attempting to parse...');
-            // Пример: "name1=value1; name2=value2"
             parsedCookies = cookies.split(';').map(pair => {
                 const [name, value] = pair.trim().split('=');
                 return { name, value, domain: '.bytick.com', path: '/' };
@@ -48,13 +33,11 @@ app.post('/get-token', async (req, res) => {
             addLog(`Parsed ${parsedCookies.length} cookies from string`);
         }
 
-        // Убедимся, что это массив объектов
         if (!Array.isArray(parsedCookies)) {
             addLog('❌ Cookies is not an array after parsing');
             return res.status(400).json({ error: 'Cookies must be an array', log });
         }
 
-        // Аргументы запуска браузера
         const launchArgs = [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -63,12 +46,10 @@ app.post('/get-token', async (req, res) => {
             '--disable-features=HttpsFirstBalancedModeAutoEnable'
         ];
         if (proxy) {
-            // Пытаемся преобразовать прокси в нужный формат
             let proxyServer = proxy;
             if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) {
                 const parts = proxy.split(':');
                 if (parts.length === 4) {
-                    // host:port:user:pass -> http://user:pass@host:port
                     proxyServer = `http://${parts[2]}:${parts[3]}@${parts[0]}:${parts[1]}`;
                 } else if (parts.length === 2) {
                     proxyServer = `http://${parts[0]}:${parts[1]}`;
@@ -78,19 +59,8 @@ app.post('/get-token', async (req, res) => {
             addLog(`🌐 Using proxy: ${proxyServer.replace(/:.+@/, ':****@')}`);
         }
 
-        // Выбираем исполняемый файл Chrome
-        const executablePath = getChromePath();
-        const launchOptions = {
-            args: launchArgs,
-            headless: true,
-            defaultViewport: null
-        };
-        if (executablePath) {
-            launchOptions.executablePath = executablePath;
-        }
-
         addLog('🚀 Launching browser...');
-        const browser = await puppeteer.launch(launchOptions);
+        const browser = await puppeteer.launch({ args: launchArgs, headless: true });
         addLog('✅ Browser launched');
 
         const page = await browser.newPage();
@@ -104,7 +74,7 @@ app.post('/get-token', async (req, res) => {
         addLog(`🌍 Navigating to ${url}`);
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        addLog('⚙️ Executing page.evaluate with detailed logging...');
+        addLog('⚙️ Executing page.evaluate...');
         const result = await page.evaluate(async (awardId) => {
             const log = (msg) => console.log(`[Evaluate] ${msg}`);
 
@@ -174,9 +144,7 @@ app.post('/get-token', async (req, res) => {
             }
         }, awardId || 138736);
 
-        addLog('✅ Evaluate completed');
         await browser.close();
-        addLog('🔒 Browser closed');
 
         if (result && result.error) {
             addLog('❌ Error from evaluate: ' + result.error);
